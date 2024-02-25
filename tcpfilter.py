@@ -399,13 +399,14 @@ class SockRedirectServer(StreamServer):
             source.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             source.setsockopt(socket.SOL_TCP, socket.TCP_KEEPIDLE, 10)
             source.setsockopt(socket.SOL_TCP, socket.TCP_KEEPINTVL, 10)
-            mac = source.getsockopt(socket.IPPROTO_IP, 172, 14)
+            #new kernel patch, not need set mac
+            #mac = source.getsockopt(socket.IPPROTO_IP, 172, 14)
 
             if self.filter_db.has_key('count'):
                 self.reply_count = self.filter_db['count']
 
             has_filtered = filter_db_get(self.filter_tmp_db, address[0], orgi_dst[0])
-            filter_forward = FilterForward(source, mac)
+            filter_forward = FilterForward(source)
 
         except Exception as ex:
             log('%s:%s failed to connect to %s:%s: %s', address[0], address[1], orgi_dst[0], orgi_dst[1], ex)
@@ -428,7 +429,7 @@ class SockRedirectServer(StreamServer):
 
 class FilterForward(object):
     
-    def __init__(self, source, mac):
+    def __init__(self, source):
         self.server_filter = False
         self.server_instance = None
         self.client_instance = None
@@ -436,7 +437,6 @@ class FilterForward(object):
         self.source =source
         self.dest = None
         self.has_filtered = False
-        self.dest_mac = mac
         self.evt = Event()
 
 
@@ -681,7 +681,8 @@ class FilterForward(object):
                     self.dest.close()
                 self.dest = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
                 self.dest.setsockopt(socket.SOL_IP, IP_TRANSPARENT, 1)
-                self.dest.setsockopt(socket.IPPROTO_IP, 172, self.dest_mac)
+                # new kernel patch, not need set mac
+                #self.dest.setsockopt(socket.IPPROTO_IP, 172, self.dest_mac)
                 self.dest.bind((src_ip[0], 0))
                 self.dest.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 self.dest.setsockopt(socket.SOL_TCP, socket.TCP_KEEPIDLE, 10)
