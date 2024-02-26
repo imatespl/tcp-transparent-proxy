@@ -3,7 +3,7 @@
 <!-- 由 Microsoft Visio, SVG Export 生成 transparent-proxy.svg Page-1 -->
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ev="http://www.w3.org/2001/xml-events"
 		xmlns:v="http://schemas.microsoft.com/visio/2003/SVGExtensions/" width="8.46121in" height="2.32394in"
-		viewBox="0 0 609.207 167.324" xml:space="preserve" color-interpolation-filters="sRGB" class="st10">
+		viewBox="0 0 609.207 167.324" xml:space="preserve" color-interpolation-filters="sRGB" class="st11">
 	<v:documentProperties v:langID="2052" v:metric="true" v:viewMarkup="false">
 		<v:userDefs>
 			<v:ud v:nameU="msvNoAutoConnect" v:prompt="" v:val="VT0(1):26"/>
@@ -21,7 +21,8 @@
 		.st7 {stroke:#a5a5a5;stroke-linecap:round;stroke-linejoin:round;stroke-width:1}
 		.st8 {fill:none;stroke:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
 		.st9 {fill:#5c5c5c;font-family:Calibri;font-size:0.666664em}
-		.st10 {fill:none;fill-rule:evenodd;font-size:12px;overflow:visible;stroke-linecap:square;stroke-miterlimit:3}
+		.st10 {fill:#5c5c5c;font-family:Calibri;font-size:1.00001em}
+		.st11 {fill:none;fill-rule:evenodd;font-size:12px;overflow:visible;stroke-linecap:square;stroke-miterlimit:3}
 	]]>
 	</style>
 
@@ -432,6 +433,17 @@
 		<g id="shape117-76" v:mID="117" v:groupContext="shape" v:layerMember="1" transform="translate(273.618,-96.0433)">
 			<title>动态连接线.117</title>
 			<path d="M0 160.24 L80.91 160.24" class="st7"/>
+		</g>
+		<g id="shape118-79" v:mID="118" v:groupContext="shape" transform="translate(173.449,-133.071)">
+			<title>工作表.118</title>
+			<desc>Mgmt</desc>
+			<v:textBlock v:margins="rect(4,4,4,4)" v:tabSpace="42.5197"/>
+			<v:textRect cx="76" cy="157.324" width="152" height="20"/>
+			<rect x="0" y="147.324" width="152" height="20" class="st8"/>
+			<text x="61.24" y="160.92" class="st10" v:langID="2052"><v:paragraph v:horizAlign="1"/><v:tabList/>Mgmt</text>		</g>
+		<g id="shape124-82" v:mID="124" v:groupContext="shape" transform="translate(414.93,30.1838) rotate(90)">
+			<title>工作表.124</title>
+			<path d="M0 167.32 L26.59 167.32" class="st7"/>
 		</g>
 	</g>
 </svg>
