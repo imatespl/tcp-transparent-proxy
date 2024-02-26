@@ -1,3 +1,2 @@
-# tcpfilter
-tcp port proxy and filter
-需要tproxy 支持，需要修改内核支持应用层获取目的mac地址，修改内核支持应用层设置源mac地址，内核patch后续更新，内核应用层设置及获取mac代码后续更新
+# tcp transparent proxy and filter
+网桥模式流量通过ebtables和iptables tproxy 重定向到应用层，进行proxy，然后在skb发出的最后一个函数ip_finish_output2 patch内核使发布的package源mac地址是client的mac(request package)或者gateway的mac(response package).
