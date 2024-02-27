@@ -46,6 +46,9 @@ echo 0 > /proc/sys/net/ipv4/conf/$SERVER_IF/rp_filter
 ebtables -t broute -A BROUTING  -p ipv4 --ip-proto tcp  -j redirect --redirect-target DROP
 iptables -t mangle -I PREROUTING -p tcp -j TPROXY --tproxy-mark $MARK --on-port 10999 --on-ip 127.0.0.1
 
-#流量会被重定向到10999端口，tcpfilter作为server监听10999端口，收到内核重定向流量，进行代理，作为client向工作站访问的Internet server发起请求，并且绑定源ip为工作站ip，此时tcpfilter做为client向server发起连接，是L3要走路由，查neigh，最终将数据发送给邻居，既通过查询 dst ip的neigh的mac地址，填充dst mac发送数据，而src mac是br0的mac
+#流量会被重定向到10999端口，tcpfilter作为server监听10999端口，收到内核重定向流量，进行代理，作为client向工作<br>
+#站访问的Internet server发起请求，并且绑定源ip为工作站ip，此时tcpfilter做为client向server发起连接，是L3要走路由，<br>
+#查neigh，最终将数据发送给邻居，既通过查询 dst ip的neigh的mac地址，填充dst mac发送数据，而src mac是br0的mac
+```
 
 
