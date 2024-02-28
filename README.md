@@ -47,12 +47,6 @@ ebtables -t broute -A BROUTING  -p ipv4 --ip-proto tcp  \
 -j redirect --redirect-target DROP
 iptables -t mangle -I PREROUTING -p tcp -j TPROXY \
 --tproxy-mark $MARK --on-port 10999 --on-ip 127.0.0.1
-
-# 流量会被重定向到10999端口，tcpfilter作为server监听10999端口，收到工作站主机发出的所有TCP流量，tcpfilter作为代理
-# 会模拟工作站作为client向工作站访问的server发起请求，传统代理会将工作站的请求报文的源ip和源mac都替换为代理程序所在主机
-# 的ip和mac，透明代理则会将请求报文的源ip替换工作站ip，但是源mac还是代理程序所在主机mac。响应报文源mac会从路由器网关的
-# mac变为代理程序所在主机的mac。kernel_patch目录实现是完全隐藏源mac，请求报文的源mac经过tcpfilter后，会被替换为工作站mac
-# 响应报文源mac会被改为路由器网关的mac，达到完全隐藏代理。抓包看就是工作站和路由器直接通信。
 ```
-
+流量会被重定向到10999端口，tcpfilter作为server监听10999端口，收到工作站主机发出的所有TCP流量，tcpfilter作为代理会模拟工作站作为client向工作站访问的server发起请求，传统代理会将工作站的请求报文的源ip和源mac都替换为代理程序所在主机的ip和mac，透明代理则会将请求报文的源ip替换工作站ip，但是源mac还是代理程序所在主机mac。响应报文源mac会从路由器网关的mac变为代理程序所在主机的mac。kernel_patch目录实现是完全隐藏源mac，请求报文的源mac经过tcpfilter后，会被替换为工作站mac响应报文源mac会被改为路由器网关的mac，达到完全隐藏代理。抓包看就是工作站和路由器直接通信。
 
