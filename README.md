@@ -49,4 +49,16 @@ iptables -t mangle -I PREROUTING -p tcp -j TPROXY \
 --tproxy-mark $MARK --on-port 10999 --on-ip 127.0.0.1
 ```
 流量会被重定向到10999端口，tcpfilter作为server监听10999端口，收到工作站主机发出的所有TCP流量，tcpfilter作为代理会模拟工作站作为client向工作站访问的server发起请求，传统代理会将工作站的请求报文的源ip和源mac都替换为代理程序所在主机的ip和mac，透明代理则会将请求报文的源ip替换工作站ip，但是源mac还是代理程序所在主机mac，响应报文源mac则会从路由器网关的mac变为代理程序所在主机的mac。kernel patch实现是为了完全隐藏源mac，请求报文的源mac经过tcpfilter后，会被替换为工作站mac，响应报文源mac会被改为路由器网关的mac，达到完全隐藏代理。抓包看就是工作站和路由器直接通信。
-
+#参考
+* pyrdp transparent proxy: https://github.com/GoSecure/pyrdp/blob/main/docs/transparent-proxy.md
+* TPROXY documentation: https://powerdns.org/tproxydoc/tproxy.md.html
+* Kernel docs: https://www.kernel.org/doc/Documentation/networking/tproxy.txt
+* Netfilter Packet Flow: https://upload.wikimedia.org/wikipedia/commons/3/37/Netfilter-packet-flow.svg
+* `ebtables` and `iptables` interaction caveats: https://ebtables.netfilter.org/br_fw_ia/br_fw_ia.html
+* `ebtables` reference: https://ebtables.netfilter.org/
+* https://github.com/rkok/bridge-mitm-tools
+* https://wiki.squid-cache.org/Features/Tproxy4#Timeouts_with_Squid_running_as_a_bridge_or_multiple-NIC
+* Network namespaces: https://lwn.net/Articles/580893/, https://blogs.igalia.com/dpino/2016/04/10/network-namespaces/
+* Give an interface to a namespace: https://medium.com/@badbot/a-thing-with-multi-homed-linux-host-two-nics-in-one-box-f62db1de8f17
+* Using bridges in network namespaces: https://ops.tips/blog/using-network-namespaces-and-bridge-to-isolate-servers/
+* Manual bridge setup: https://www.tldp.org/HOWTO/BRIDGE-STP-HOWTO/set-up-the-bridge.html
