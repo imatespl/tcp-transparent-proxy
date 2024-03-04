@@ -69,4 +69,18 @@ static inline struct neighbour *ip_neigh_for_gw(struct rtable *rt,
 	return neigh;
 }
 ```
-上面逻辑是根据rt->rt_gw_family值是否是AF_INET/AF_INET6，AF_INET表明rt->rt_gw4（也就是网关）是ipv4的地址，AF_INET6表明rt->rt_gw6（ipv6路由表网关）是ipv6的地址
+上面逻辑是根据rt->rt_gw_family值是否是AF_INET/AF_INET6，AF_INET表明rt->rt_gw4（也就是网关）是ipv4的地址，AF_INET6表明rt->rt_gw6（ipv6路由表网关）是ipv6的地址，其他情况表明route table的网关不存在，表示是直连地址。上面代码逻辑就是如果route table的是网关，根据网关构建neigh，如果不是，根据skb的目的ip地址构建neigh。<br>
+继续跟踪，仅看ipv4的情况，调用是`neigh = ip_neigh_gw4(dev, rt->rt_gw4);`或者`neigh = ip_neigh_gw4(dev, ip_hdr(skb)->daddr);`，看下`ip_neigh_gw4((struct net_device *dev, __be32 daddr)`
+```c
+static inline struct neighbour *ip_neigh_gw4(struct net_device *dev,
+					     __be32 daddr)
+{
+	struct neighbour *neigh;
+
+	neigh = __ipv4_neigh_lookup_noref(dev, (__force u32)daddr);
+	if (unlikely(!neigh))
+		neigh = __neigh_create(&arp_tbl, &daddr, dev, false);
+
+	return neigh;
+}
+```
