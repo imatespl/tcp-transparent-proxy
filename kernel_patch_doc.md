@@ -145,7 +145,7 @@ static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb
 	return dev_queue_xmit(skb);
 }
 ```
-这个函数的作用是复制`hh_cache`数据结构里面的`hh_data`到skb，然后通过dev_queue_xmit把数据传递给网络设备的发送队列。hh_data就是eth header里面包含源目的mac和协议，ethhdr数据结构如下：
+这个函数的作用是复制`hh_cache`数据结构里面的`hh_data`到skb，然后通过dev_queue_xmit把数据传递给网络设备的发送队列。hh_data就是eth header里面包含源目的mac和协议，eth header的数据结构ethhdr如下：
 ```c
 struct ethhdr {
 	unsigned char	h_dest[ETH_ALEN];	/* destination eth addr	*/
@@ -153,4 +153,208 @@ struct ethhdr {
 	__be16		h_proto;		/* packet type ID field	*/
 } __attribute__((packed));
 ```
-hh_data就是这个ethhdr
+hh_data是个数组，里面数据就是这个ethhdr。<br>
+返回`neigh_output`看下neigh状态不是`NUD_CONNECTED`，会直接走neigh的成员函数`output`对skb的发送，现在确认下`output`对应的实际函数是哪个，顺着这个思路，要找到`output`的函数，需要先找到neigh的初始化构建函数，在上面代码获得neigh的里面有提到，回到neigh的创建`ip_neigh_gw4`里面的`__neigh_create`:
+```c
+static inline struct neighbour *ip_neigh_gw4(struct net_device *dev,
+					     __be32 daddr)
+{
+	struct neighbour *neigh;
+
+	neigh = __ipv4_neigh_lookup_noref(dev, (__force u32)daddr);
+	if (unlikely(!neigh))
+		neigh = __neigh_create(&arp_tbl, &daddr, dev, false);
+
+	return neigh;
+}
+```
+可以看到`__neigh_create`里面有全局参数arp_tbl，在详细可以在https://elixir.bootlin.com/linux/v5.15.63/source/net/ipv4/arp.c#L152 找到，如下是部分：
+```c
+struct neigh_table arp_tbl = {
+	.family		= AF_INET,
+	.key_len	= 4,
+	.protocol	= cpu_to_be16(ETH_P_IP),
+	.hash		= arp_hash,
+	.key_eq		= arp_key_eq,
+	.constructor	= arp_constructor,
+	.proxy_redo	= parp_redo,
+	.is_multicast	= arp_is_multicast,
+```
+继续进入`__neigh_create`
+```c
+static struct neighbour *
+___neigh_create(struct neigh_table *tbl, const void *pkey,
+		struct net_device *dev, u8 flags,
+		bool exempt_from_gc, bool want_ref)
+{
+	u32 hash_val, key_len = tbl->key_len;
+	struct neighbour *n1, *rc, *n;
+	struct neigh_hash_table *nht;
+	int error;
+
+	n = neigh_alloc(tbl, dev, flags, exempt_from_gc);
+	trace_neigh_create(tbl, dev, pkey, n, exempt_from_gc);
+	if (!n) {
+		rc = ERR_PTR(-ENOBUFS);
+		goto out;
+	}
+
+	memcpy(n->primary_key, pkey, key_len);
+	n->dev = dev;
+	dev_hold(dev);
+
+	/* Protocol specific setup. */
+	if (tbl->constructor &&	(error = tbl->constructor(n)) < 0) {
+		rc = ERR_PTR(error);
+		goto out_neigh_release;
+	}
+
+	if (dev->netdev_ops->ndo_neigh_construct) {
+		error = dev->netdev_ops->ndo_neigh_construct(dev, n);
+		if (error < 0) {
+			rc = ERR_PTR(error);
+			goto out_neigh_release;
+		}
+	}
+
+	/* Device specific setup. */
+	if (n->parms->neigh_setup &&
+	    (error = n->parms->neigh_setup(n)) < 0) {
+		rc = ERR_PTR(error);
+		goto out_neigh_release;
+	}
+
+	n->confirmed = jiffies - (NEIGH_VAR(n->parms, BASE_REACHABLE_TIME) << 1);
+
+	write_lock_bh(&tbl->lock);
+	nht = rcu_dereference_protected(tbl->nht,
+					lockdep_is_held(&tbl->lock));
+
+	if (atomic_read(&tbl->entries) > (1 << nht->hash_shift))
+		nht = neigh_hash_grow(tbl, nht->hash_shift + 1);
+
+	hash_val = tbl->hash(n->primary_key, dev, nht->hash_rnd) >> (32 - nht->hash_shift);
+
+	if (n->parms->dead) {
+		rc = ERR_PTR(-EINVAL);
+		goto out_tbl_unlock;
+	}
+
+	for (n1 = rcu_dereference_protected(nht->hash_buckets[hash_val],
+					    lockdep_is_held(&tbl->lock));
+	     n1 != NULL;
+	     n1 = rcu_dereference_protected(n1->next,
+			lockdep_is_held(&tbl->lock))) {
+		if (dev == n1->dev && !memcmp(n1->primary_key, n->primary_key, key_len)) {
+			if (want_ref)
+				neigh_hold(n1);
+			rc = n1;
+			goto out_tbl_unlock;
+		}
+	}
+
+	n->dead = 0;
+	if (!exempt_from_gc)
+		list_add_tail(&n->gc_list, &n->tbl->gc_list);
+
+	if (want_ref)
+		neigh_hold(n);
+	rcu_assign_pointer(n->next,
+			   rcu_dereference_protected(nht->hash_buckets[hash_val],
+						     lockdep_is_held(&tbl->lock)));
+	rcu_assign_pointer(nht->hash_buckets[hash_val], n);
+	write_unlock_bh(&tbl->lock);
+	neigh_dbg(2, "neigh %p is created\n", n);
+	rc = n;
+out:
+	return rc;
+out_tbl_unlock:
+	write_unlock_bh(&tbl->lock);
+out_neigh_release:
+	if (!exempt_from_gc)
+		atomic_dec(&tbl->gc_entries);
+	neigh_release(n);
+	goto out;
+}
+
+struct neighbour *__neigh_create(struct neigh_table *tbl, const void *pkey,
+				 struct net_device *dev, bool want_ref)
+{
+	return ___neigh_create(tbl, pkey, dev, 0, false, want_ref);
+}
+EXPORT_SYMBOL(__neigh_create);
+```
+从上面代码找到一行`if (tbl->constructor &&	(error = tbl->constructor(n)) < 0) {`，这里constructor就是arp_tbl的constructor，对应的函数是`.constructor	= arp_constructor,`，这里明显就是neigh的初始化构建，继续进入arp_constructor
+```c
+static int arp_constructor(struct neighbour *neigh)
+{
+	__be32 addr;
+	struct net_device *dev = neigh->dev;
+	struct in_device *in_dev;
+	struct neigh_parms *parms;
+	u32 inaddr_any = INADDR_ANY;
+
+	if (dev->flags & (IFF_LOOPBACK | IFF_POINTOPOINT))
+		memcpy(neigh->primary_key, &inaddr_any, arp_tbl.key_len);
+
+	addr = *(__be32 *)neigh->primary_key;
+	rcu_read_lock();
+	in_dev = __in_dev_get_rcu(dev);
+	if (!in_dev) {
+		rcu_read_unlock();
+		return -EINVAL;
+	}
+
+	neigh->type = inet_addr_type_dev_table(dev_net(dev), dev, addr);
+
+	parms = in_dev->arp_parms;
+	__neigh_parms_put(neigh->parms);
+	neigh->parms = neigh_parms_clone(parms);
+	rcu_read_unlock();
+
+	if (!dev->header_ops) {
+		neigh->nud_state = NUD_NOARP;
+		neigh->ops = &arp_direct_ops;
+		neigh->output = neigh_direct_output;
+	} else {
+		/* Good devices (checked by reading texts, but only Ethernet is
+		   tested)
+
+		   ARPHRD_ETHER: (ethernet, apfddi)
+		   ARPHRD_FDDI: (fddi)
+		   ARPHRD_IEEE802: (tr)
+		   ARPHRD_METRICOM: (strip)
+		   ARPHRD_ARCNET:
+		   etc. etc. etc.
+
+		   ARPHRD_IPDDP will also work, if author repairs it.
+		   I did not it, because this driver does not work even
+		   in old paradigm.
+		 */
+
+		if (neigh->type == RTN_MULTICAST) {
+			neigh->nud_state = NUD_NOARP;
+			arp_mc_map(addr, neigh->ha, dev, 1);
+		} else if (dev->flags & (IFF_NOARP | IFF_LOOPBACK)) {
+			neigh->nud_state = NUD_NOARP;
+			memcpy(neigh->ha, dev->dev_addr, dev->addr_len);
+		} else if (neigh->type == RTN_BROADCAST ||
+			   (dev->flags & IFF_POINTOPOINT)) {
+			neigh->nud_state = NUD_NOARP;
+			memcpy(neigh->ha, dev->broadcast, dev->addr_len);
+		}
+
+		if (dev->header_ops->cache)
+			neigh->ops = &arp_hh_ops;
+		else
+			neigh->ops = &arp_generic_ops;
+
+		if (neigh->nud_state & NUD_VALID)
+			neigh->output = neigh->ops->connected_output;
+		else
+			neigh->output = neigh->ops->output;
+	}
+	return 0;
+}
+```
+看上面逻辑，先判断dev->header_ops是否存在`if (!dev->header_ops) {`(例如ipip设备就不存在header_ops)，如果不存在dev->header_ops，neigh实例的output为`neigh_direct_output`见代码`neigh->output = neigh_direct_output;`，如果存在从`if (dev->header_ops->cache)`往下看，neigh->ops被赋值为arp_hh_ops或者arp_generic_ops
