@@ -357,4 +357,136 @@ static int arp_constructor(struct neighbour *neigh)
 	return 0;
 }
 ```
-看上面逻辑，先判断dev->header_ops是否存在`if (!dev->header_ops) {`(例如ipip设备就不存在header_ops)，如果不存在dev->header_ops，neigh实例的output为`neigh_direct_output`见代码`neigh->output = neigh_direct_output;`，如果存在从`if (dev->header_ops->cache)`往下看，neigh->ops被赋值为arp_hh_ops或者arp_generic_ops
+看上面逻辑，先判断dev->header_ops是否存在`if (!dev->header_ops) {`(例如ipip设备就不存在header_ops)，如果不存在dev->header_ops，neigh实例的output为`neigh_direct_output`见代码`neigh->output = neigh_direct_output;`，如果存在从`if (dev->header_ops->cache)`往下看，neigh->ops被赋值为arp_hh_ops或者arp_generic_ops，后面的逻辑就是检查neigh状态是否为`NUD_VALID`，后面的`neigh->output`赋值为`neigh->ops->connected_output`或者`neigh->ops->ouput`,也就是有`dev->header_ops->cache`并且neigh状态是`NUD_VALID`，neigh->output为`arp_hh_ops->connect_output`,有`dev->header_ops->cache`并且neigh状态为非`NUD_VALID`，neigh->output为`arp_hh_ops->output`，没有`dev->header_ops->cache`的时候逻辑一样，换成`arp_generic_ops`，继续看下`arp_hh_ops`和`arp_generic_ops`变量
+```c
+static const struct neigh_ops arp_generic_ops = {
+	.family =		AF_INET,
+	.solicit =		arp_solicit,
+	.error_report =		arp_error_report,
+	.output =		neigh_resolve_output,
+	.connected_output =	neigh_connected_output,
+};
+
+static const struct neigh_ops arp_hh_ops = {
+	.family =		AF_INET,
+	.solicit =		arp_solicit,
+	.error_report =		arp_error_report,
+	.output =		neigh_resolve_output,
+	.connected_output =	neigh_resolve_output,
+};
+```
+可以看到neigh的output函数有三个可能
+```c
+neigh_direct_output;
+neigh_resolve_output;
+neigh_connected_output;
+```
+`neigh_direct_output`是不设置ethhdr直接发送，不是我们关注的场景，接下来看下`neigh_resolve_output`
+```c
+int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
+{
+	int rc = 0;
+
+	if (!neigh_event_send(neigh, skb)) {
+		int err;
+		struct net_device *dev = neigh->dev;
+		unsigned int seq;
+
+		if (dev->header_ops->cache && !READ_ONCE(neigh->hh.hh_len))
+			neigh_hh_init(neigh);
+
+		do {
+			__skb_pull(skb, skb_network_offset(skb));
+			seq = read_seqbegin(&neigh->ha_lock);
+			err = dev_hard_header(skb, dev, ntohs(skb->protocol),
+					      neigh->ha, NULL, skb->len);
+		} while (read_seqretry(&neigh->ha_lock, seq));
+
+		if (err >= 0)
+			rc = dev_queue_xmit(skb);
+		else
+			goto out_kfree_skb;
+	}
+out:
+	return rc;
+out_kfree_skb:
+	rc = -EINVAL;
+	kfree_skb(skb);
+	goto out;
+}
+EXPORT_SYMBOL(neigh_resolve_output);
+```
+可以看到有个`dev_hard_header`的函数调用，是设置skb的ethhdr，接着看下
+```c
+static inline int dev_hard_header(struct sk_buff *skb, struct net_device *dev,
+				  unsigned short type,
+				  const void *daddr, const void *saddr,
+				  unsigned int len)
+{
+	if (!dev->header_ops || !dev->header_ops->create)
+		return 0;
+
+	return dev->header_ops->create(skb, dev, type, daddr, saddr, len);
+}
+```
+可以在linux源码网站bootlin.com全局搜索下`header_ops`, 定位到Ethernet设备的header_ops在https://elixir.bootlin.com/linux/v5.15.63/source/net/ethernet/eth.c#L78 代码如下：
+```c
+const struct header_ops eth_header_ops ____cacheline_aligned = {
+	.create		= eth_header,
+	.parse		= eth_header_parse,
+	.cache		= eth_header_cache,
+	.cache_update	= eth_header_cache_update,
+	.parse_protocol	= eth_header_parse_protocol,
+};
+```
+可以看到header_ops->create对应函数是`eth_header`,继续看下eth_header
+```c
+int eth_header(struct sk_buff *skb, struct net_device *dev,
+	       unsigned short type,
+	       const void *daddr, const void *saddr, unsigned int len)
+{
+	struct ethhdr *eth = skb_push(skb, ETH_HLEN);
+
+	if (type != ETH_P_802_3 && type != ETH_P_802_2)
+		eth->h_proto = htons(type);
+	else
+		eth->h_proto = htons(len);
+
+	/*
+	 *      Set the source hardware address.
+	 */
+
+	if (!saddr)
+		saddr = dev->dev_addr;
+	memcpy(eth->h_source, saddr, ETH_ALEN);
+
+	if (daddr) {
+		memcpy(eth->h_dest, daddr, ETH_ALEN);
+		return ETH_HLEN;
+	}
+
+	/*
+	 *      Anyway, the loopback-device should never use this function...
+	 */
+
+	if (dev->flags & (IFF_LOOPBACK | IFF_NOARP)) {
+		eth_zero_addr(eth->h_dest);
+		return ETH_HLEN;
+	}
+
+	return -ETH_HLEN;
+}
+EXPORT_SYMBOL(eth_header);
+```
+可以看到会根据参数是否存在saddr，如果不存在就复制网卡的mac地址，`neigh_resolve_output`里面
+```c
+		do {
+			__skb_pull(skb, skb_network_offset(skb));
+			seq = read_seqbegin(&neigh->ha_lock);
+			err = dev_hard_header(skb, dev, ntohs(skb->protocol),
+					      neigh->ha, NULL, skb->len);
+		} while (read_seqretry(&neigh->ha_lock, seq));
+```
+填的saddr是NULL，所以发出去的报文是本机的接口的mac地址，`neigh_connected_output`里面一样，dev_hard_header参数`void *saddr`填的也是`NULL`。<br>
+至此，整个`ip_fininsh_ouput2`设置ethhdr，然后把将skb传递给网络设备的发送队列，将skb发送出去的逻辑就理清楚了，可以看到所有skb的源mac都会被设置为发送网卡的mac。
+## 透明代理网桥模式下替换skb的源mac地址
