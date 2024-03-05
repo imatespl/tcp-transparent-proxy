@@ -145,4 +145,12 @@ static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb
 	return dev_queue_xmit(skb);
 }
 ```
-
+这个函数的作用是复制`hh_cache`数据结构里面的`hh_data`到skb，然后通过dev_queue_xmit把数据传递给网络设备的发送队列。hh_data就是eth header里面包含源目的mac和协议，ethhdr数据结构如下：
+```c
+struct ethhdr {
+	unsigned char	h_dest[ETH_ALEN];	/* destination eth addr	*/
+	unsigned char	h_source[ETH_ALEN];	/* source ether addr	*/
+	__be16		h_proto;		/* packet type ID field	*/
+} __attribute__((packed));
+```
+hh_data就是这个ethhdr
