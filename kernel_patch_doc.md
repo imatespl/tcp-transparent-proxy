@@ -30,13 +30,14 @@ static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *s
 	}
 
 	rcu_read_lock_bh();
-//根据dst ip获得neigh数据
+        //根据dst ip获得neigh数据
 	neigh = ip_neigh_for_gw(rt, skb, &is_v6gw);
 	if (!IS_ERR(neigh)) {
 		int res;
 
 		sock_confirm_neigh(skb, neigh);
 		/* if crossing protocols, can not use the cached header */
+                //向neigh发送skb数据
 		res = neigh_output(neigh, skb, is_v6gw);
 		rcu_read_unlock_bh();
 		return res;
@@ -58,14 +59,14 @@ static inline struct neighbour *ip_neigh_for_gw(struct rtable *rt,
 {
 	struct net_device *dev = rt->dst.dev;
 	struct neighbour *neigh;
-//如果是路由需要经过网关，查询网关neigh
+        //如果是路由需要经过网关，查询网关neigh
 	if (likely(rt->rt_gw_family == AF_INET)) {
 		neigh = ip_neigh_gw4(dev, rt->rt_gw4);
 	} else if (rt->rt_gw_family == AF_INET6) {
 		neigh = ip_neigh_gw6(dev, &rt->rt_gw6);
 		*is_v6gw = true;
 	} else {
-//如果不需要直接查询dst ip的neigh
+        //如果不需要直接查询dst ip的neigh
 		neigh = ip_neigh_gw4(dev, ip_hdr(skb)->daddr);
 	}
 	return neigh;
@@ -78,7 +79,7 @@ static inline struct neighbour *ip_neigh_gw4(struct net_device *dev,
 					     __be32 daddr)
 {
 	struct neighbour *neigh;
-//先查询，不存在就建立
+        //先查询，不存在就建立
 	neigh = __ipv4_neigh_lookup_noref(dev, (__force u32)daddr);
 	if (unlikely(!neigh))
 		neigh = __neigh_create(&arp_tbl, &daddr, dev, false);
@@ -93,7 +94,7 @@ static inline int neigh_output(struct neighbour *n, struct sk_buff *skb,
 			       bool skip_cache)
 {
 	const struct hh_cache *hh = &n->hh;
-
+        //两种方式，邻居状态是NUD_CONNECTED，非跳过cache的直接走mac缓存
 	/* n->nud_state and hh->hh_len could be changed under us.
 	 * neigh_hh_output() is taking care of the race later.
 	 */
@@ -101,7 +102,7 @@ static inline int neigh_output(struct neighbour *n, struct sk_buff *skb,
 	    (READ_ONCE(n->nud_state) & NUD_CONNECTED) &&
 	    READ_ONCE(hh->hh_len))
 		return neigh_hh_output(hh, skb);
-
+        //另外一种调用neigh成员函数output发送
 	return n->output(n, skb);
 }
 ```
@@ -125,12 +126,13 @@ static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb
 			 */
 			if (likely(skb_headroom(skb) >= HH_DATA_MOD)) {
 				/* this is inlined by gcc */
+                               //复制缓存的mac到skb
 				memcpy(skb->data - HH_DATA_MOD, hh->hh_data,
 				       HH_DATA_MOD);
 			}
 		} else {
 			hh_alen = HH_DATA_ALIGN(hh_len);
-
+                        //复制缓存的mac到skb
 			if (likely(skb_headroom(skb) >= hh_alen)) {
 				memcpy(skb->data - hh_alen, hh->hh_data,
 				       hh_alen);
@@ -142,7 +144,7 @@ static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb
 		kfree_skb(skb);
 		return NET_XMIT_DROP;
 	}
-
+        //发送给下一层
 	__skb_push(skb, hh_len);
 	return dev_queue_xmit(skb);
 }
@@ -165,6 +167,7 @@ static inline struct neighbour *ip_neigh_gw4(struct net_device *dev,
 
 	neigh = __ipv4_neigh_lookup_noref(dev, (__force u32)daddr);
 	if (unlikely(!neigh))
+         //创建neigh
 		neigh = __neigh_create(&arp_tbl, &daddr, dev, false);
 
 	return neigh;
@@ -206,6 +209,7 @@ ___neigh_create(struct neigh_table *tbl, const void *pkey,
 	dev_hold(dev);
 
 	/* Protocol specific setup. */
+        //构建函数
 	if (tbl->constructor &&	(error = tbl->constructor(n)) < 0) {
 		rc = ERR_PTR(error);
 		goto out_neigh_release;
@@ -313,12 +317,13 @@ static int arp_constructor(struct neighbour *neigh)
 	__neigh_parms_put(neigh->parms);
 	neigh->parms = neigh_parms_clone(parms);
 	rcu_read_unlock();
-
+        //不存在dev->header_ops情况，如ipip虚拟设备
 	if (!dev->header_ops) {
 		neigh->nud_state = NUD_NOARP;
 		neigh->ops = &arp_direct_ops;
 		neigh->output = neigh_direct_output;
 	} else {
+        //存在的情况
 		/* Good devices (checked by reading texts, but only Ethernet is
 		   tested)
 
@@ -345,7 +350,7 @@ static int arp_constructor(struct neighbour *neigh)
 			neigh->nud_state = NUD_NOARP;
 			memcpy(neigh->ha, dev->broadcast, dev->addr_len);
 		}
-
+                //这里处理单播情况
 		if (dev->header_ops->cache)
 			neigh->ops = &arp_hh_ops;
 		else
@@ -400,6 +405,7 @@ int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
 		do {
 			__skb_pull(skb, skb_network_offset(skb));
 			seq = read_seqbegin(&neigh->ha_lock);
+                        //注意这里参数中NULL
 			err = dev_hard_header(skb, dev, ntohs(skb->protocol),
 					      neigh->ha, NULL, skb->len);
 		} while (read_seqretry(&neigh->ha_lock, seq));
@@ -457,7 +463,7 @@ int eth_header(struct sk_buff *skb, struct net_device *dev,
 	/*
 	 *      Set the source hardware address.
 	 */
-
+        //这里就是dev_hard_header调用传的NULL，直接赋值了接口mac
 	if (!saddr)
 		saddr = dev->dev_addr;
 	memcpy(eth->h_source, saddr, ETH_ALEN);
