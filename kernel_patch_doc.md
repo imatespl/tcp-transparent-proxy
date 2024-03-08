@@ -30,6 +30,7 @@ static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *s
 	}
 
 	rcu_read_lock_bh();
+//根据dst ip获得neigh数据
 	neigh = ip_neigh_for_gw(rt, skb, &is_v6gw);
 	if (!IS_ERR(neigh)) {
 		int res;
@@ -57,13 +58,14 @@ static inline struct neighbour *ip_neigh_for_gw(struct rtable *rt,
 {
 	struct net_device *dev = rt->dst.dev;
 	struct neighbour *neigh;
-
+//如果是路由需要经过网关，查询网关neigh
 	if (likely(rt->rt_gw_family == AF_INET)) {
 		neigh = ip_neigh_gw4(dev, rt->rt_gw4);
 	} else if (rt->rt_gw_family == AF_INET6) {
 		neigh = ip_neigh_gw6(dev, &rt->rt_gw6);
 		*is_v6gw = true;
 	} else {
+//如果不需要直接查询dst ip的neigh
 		neigh = ip_neigh_gw4(dev, ip_hdr(skb)->daddr);
 	}
 	return neigh;
@@ -76,7 +78,7 @@ static inline struct neighbour *ip_neigh_gw4(struct net_device *dev,
 					     __be32 daddr)
 {
 	struct neighbour *neigh;
-
+//先查询，不存在就建立
 	neigh = __ipv4_neigh_lookup_noref(dev, (__force u32)daddr);
 	if (unlikely(!neigh))
 		neigh = __neigh_create(&arp_tbl, &daddr, dev, false);
