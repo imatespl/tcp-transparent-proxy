@@ -563,3 +563,5 @@ SERVER response package proxy by TCP RPOXY
 +-------------------+-------------------+--------+-----------+---------------+--------------+----------+----------+------+
 ```
 可以看到无论是请求报文，还是响应报文，经过透明代理后，源ip是不变的，但是源mac都变成了代理主机网桥接口的mac地址。
+那么如何修改源mac，其实方案经过上面代码分析已经呼之欲出了，在透明代理的时候，应用层代理设置了源ip为CLIENT的ip，并且设置sock类型为transparent，所以在ip_finish_output2中skb的saddr是CILENT的ip，那么想办法查询neigh表，查询到skb saddr对应的mac地址就是CLIENT的mac，在调用dev_hard_header的时候，把参数saddr填充CLIENT的mac就可以了。<br>
+服务器响应报文相对复杂点，需要考虑同网段和不同网段（过网关的情况），同网段情况，响应报文的saddr就是SERVER的ip，处理同CLIENT的请求报文，不同网段情况，saddr是SERVER的ip，而源mac需要的是网关的mac地址，此时需要根据saddr（SERVER ip）查询网关，然后再根据网关查询neigh表，获得mac地址，填入dev_hard_header的saddr参数就完成了源mac地址保持不变。
