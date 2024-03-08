@@ -616,3 +616,50 @@ index 131066d03..ef31e16e1 100644
  		res = neigh_output(neigh, skb, is_v6gw);
  		rcu_read_unlock_bh();
 ```
+再来看下neigh_transparent_output
+```c
+diff --git a/include/net/neighbour.h b/include/net/neighbour.h
+index d5767e255..656682cbd 100644
+--- a/include/net/neighbour.h
++++ b/include/net/neighbour.h
+@@ -500,6 +500,38 @@ static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb
+ 	return dev_queue_xmit(skb);
+ }
+ 
++static inline int neigh_transparent_output(struct neighbour *neigh, struct neighbour *saddr_neigh, struct sk_buff *skb)
++{
++	int rc = 0;
++
++	int err;
++	struct net_device *dev = neigh->dev;
++	unsigned int saddr_seq;
++	unsigned int seq;
++
++	do {
++		saddr_seq = read_seqbegin(&saddr_neigh->ha_lock);
++		do {
++			__skb_pull(skb, skb_network_offset(skb));
++			seq = read_seqbegin(&neigh->ha_lock);
+//在这里把saddr的neigh的mac地址传了dev_hard_header
++			err = dev_hard_header(skb, dev, ntohs(skb->protocol),
++						  neigh->ha, saddr_neigh->ha, skb->len);
++		} while (read_seqretry(&neigh->ha_lock, seq));
++	} while (read_seqretry(&saddr_neigh->ha_lock, saddr_seq));
++
++	if (err >= 0)
++		rc = dev_queue_xmit(skb);
++	else
++		goto out_kfree_skb;
++
++out:
++	return rc;
++out_kfree_skb:
++	rc = -EINVAL;
++	kfree_skb(skb);
++	goto out;
++}
++
+ static inline int neigh_output(struct neighbour *n, struct sk_buff *skb,
+ 			       bool skip_cache)
+ {
+```
