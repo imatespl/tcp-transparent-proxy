@@ -576,10 +576,10 @@ SERVER response package proxy by TCP RPOXY
 服务器响应报文相对复杂点，需要考虑同网段和不同网段（过网关的情况），同网段情况，响应报文的saddr就是SERVER的ip，处理同CLIENT的请求报文，不同网段情况，saddr是SERVER的ip，而源mac需要的是网关的mac地址，此时需要根据saddr（SERVER ip）查询网关，然后再根据网关查询neigh表，获得mac地址，填入dev_hard_header的saddr参数就完成了源mac地址保持不变。
 ```c
 diff --git a/net/ipv4/ip_output.c b/net/ipv4/ip_output.c
-index 131066d03..ef31e16e1 100644
+index 131066d03..9ed70983e 100644
 --- a/net/ipv4/ip_output.c
 +++ b/net/ipv4/ip_output.c
-@@ -222,8 +222,36 @@ static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *s
+@@ -222,8 +222,39 @@ static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *s
  	neigh = ip_neigh_for_gw(rt, skb, &is_v6gw);
  	if (!IS_ERR(neigh)) {
  		int res;
@@ -599,15 +599,18 @@ index 131066d03..ef31e16e1 100644
 //如果根据daddr获得rt网关类型是AF_INET，也就daddr是要走网关的，那么saddr就是同网段的，直接查询skb源ip的neigh
 +				if (rt->rt_gw_family == AF_INET) {
 +					saddr_neigh = ip_neigh_gw4(dev, iph->saddr);
-//其他daddr是同网段，根据源地址查询网关，如果网关是0，应该根据saddr查询neigh（这里有个bug，后续更新），
+//其他daddr是同网段，根据源地址查询网关，如果网关是0，应该根据saddr查询neigh，
 //如果网关要走网关，那么根据网关查询neigh
 +				}else {
 +					rt1 = ip_route_output(net, iph->saddr, 0, 0, 0);
-+					if (IS_ERR(rt1) || ipv4_is_zeronet(rt1->rt_gw4)) {
-+						printk(KERN_DEBUG "rt1 gw when oif is 0 %pI4\n", &rt1->rt_gw4);
++					if (IS_ERR(rt1)) {
 +						goto no_src_mac;
 +					}
-+					saddr_neigh = ip_neigh_gw4(dev, rt1->rt_gw4);
++					if (rt1->rt_gw_family == AF_INET)
++						saddr_neigh = ip_neigh_gw4(dev, rt1->rt_gw4);
++					else
++						saddr_neigh = ip_neigh_gw4(dev, iph->saddr);
++
 +					ip_rt_put(rt1);
 +				}
 +				if (!IS_ERR(saddr_neigh)) {
