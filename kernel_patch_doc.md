@@ -599,8 +599,8 @@ index 131066d03..9ed70983e 100644
 //如果根据daddr获得rt网关类型是AF_INET，也就daddr是要走网关的，那么saddr就是同网段的，直接查询skb源ip的neigh
 +				if (rt->rt_gw_family == AF_INET) {
 +					saddr_neigh = ip_neigh_gw4(dev, iph->saddr);
-//其他daddr是同网段，根据源地址查询网关，如果网关是0，应该根据saddr查询neigh，
-//如果网关要走网关，那么根据网关查询neigh
+//其他daddr是同网段，根据源地址查询网关，如果到源地址需要走网关（也就是不同网段），应该根据网关地址查询源neigh，
+//如果不需要走网关（也就是在同网关），那么直接根据saddr查询源neigh
 +				}else {
 +					rt1 = ip_route_output(net, iph->saddr, 0, 0, 0);
 +					if (IS_ERR(rt1)) {
